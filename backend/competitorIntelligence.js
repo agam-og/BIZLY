@@ -1153,6 +1153,7 @@ function buildVerifiedClaims(evidence) {
     };
   });
 }
+
 async function resolveCompetitorEntity(candidate) {
   if (!candidate?.name) {
     return null;
@@ -1169,40 +1170,64 @@ async function resolveCompetitorEntity(candidate) {
       `"${company}" official website company`
     );
 
-    const results = result.results || [];
+    const results = result?.results || [];
 
-    const validResults = results.filter(item => {
-      const url = cleanText(item.url);
-      const title = cleanText(item.title);
+    const normalizedCompany = company
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
 
-      if (!url || !title) {
-        return false;
-      }
+    const validResults = results
+      .map(item => {
+        const url = cleanText(item.url);
+        const title = cleanText(item.title);
 
-      const domain =
-        getDomain(url);
+        if (!url || !title) {
+          return null;
+        }
 
-      if (!domain) {
-        return false;
-      }
+        const domain = getDomain(url);
 
-      const lowerTitle =
-        title.toLowerCase();
+        if (!domain) {
+          return null;
+        }
 
-      const lowerUrl =
-        url.toLowerCase();
+        const normalizedDomain = domain
+          .toLowerCase()
+          .replace(/^www\./, '')
+          .split('.')[0]
+          .replace(/[^a-z0-9]/g, '');
 
-      return (
-        lowerTitle.includes(
-          company.toLowerCase()
-        ) ||
-        lowerUrl.includes(
-          company
-            .toLowerCase()
-            .replace(/\s+/g, '')
-        )
+        const normalizedTitle = title
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '');
+
+        let score = Number(item.score || 0);
+
+        // Strong signal: company name matches the domain.
+        if (
+          normalizedDomain === normalizedCompany ||
+          normalizedDomain.includes(normalizedCompany) ||
+          normalizedCompany.includes(normalizedDomain)
+        ) {
+          score += 1.0;
+        }
+
+        // Secondary signal: company name appears in title.
+        if (normalizedTitle.includes(normalizedCompany)) {
+          score += 0.5;
+        }
+
+        return {
+          ...item,
+          domain,
+          resolutionScore: score
+        };
+      })
+      .filter(Boolean)
+      .sort(
+        (a, b) =>
+          b.resolutionScore - a.resolutionScore
       );
-    });
 
     if (validResults.length === 0) {
       console.log(
@@ -1217,18 +1242,14 @@ async function resolveCompetitorEntity(candidate) {
       };
     }
 
-    const best =
-      validResults[0];
+    const best = validResults[0];
 
-    const officialDomain =
-      getDomain(best.url);
+    const officialDomain = best.domain;
 
-    const confidence =
-      Math.min(
-        1,
-        0.6 +
-        ((best.score ?? 0.5) * 0.4)
-      );
+    const confidence = Math.min(
+      1,
+      0.5 + (best.resolutionScore * 0.2)
+    );
 
     console.log(
       `[ENTITY RESOLUTION] ${company} → ${officialDomain}`
@@ -1241,21 +1262,14 @@ async function resolveCompetitorEntity(candidate) {
 
       officialDomain,
 
-      officialUrl:
-        best.url,
+      officialUrl: best.url,
 
-      entityConfidence:
-        confidence,
+      entityConfidence: confidence,
 
       entityEvidence: {
-        title:
-          cleanText(best.title),
-
-        url:
-          cleanText(best.url),
-
-        content:
-          cleanText(best.content)
+        title: cleanText(best.title),
+        url: cleanText(best.url),
+        content: cleanText(best.content)
       }
     };
 
