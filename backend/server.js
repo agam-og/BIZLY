@@ -346,52 +346,58 @@ app.post('/api/intelligence/github', async (req, res) => {
     });
   }
 });
+const { buildIntelligence } = require('./intelligenceCore');
+
+app.post('/api/intelligence', async (req, res) => {
+  const {
+    query,
+    website,
+    youtube,
+    linkedin,
+    instagram,
+    x,
+    repoUrl
+  } = req.body;
+
+  if (!query) {
+    return res.status(400).json({
+      success: false,
+      error: 'query is required.'
+    });
+  }
+
+  try {
+    console.log(
+      `[INTELLIGENCE CORE API] Request received: ${query}`
+    );
+
+    const intelligence = await buildIntelligence({
+      query,
+      website,
+      youtube,
+      linkedin,
+      instagram,
+      x,
+      repoUrl
+    });
+
+    return res.json(intelligence);
+
+  } catch (error) {
+    console.error(
+      '[INTELLIGENCE CORE API] Error:',
+      error.message
+    );
+
+    return res.status(500).json({
+      success: false,
+      error: 'Unified intelligence analysis failed.',
+      details: error.message
+    });
+  }
+});
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log(`BIZLY backend running on http://localhost:${PORT}`);
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
