@@ -13,7 +13,7 @@ const {
 
 const KNOWLEDGE_FILE = path.join(
   __dirname,
-  "knowledgeStore.json"
+  "../../data/design/knowledgeStore.json"
 );
 
 const FETCH_TIMEOUT = 15000;
