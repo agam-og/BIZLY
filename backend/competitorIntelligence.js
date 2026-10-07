@@ -59,7 +59,7 @@ function extractCandidates(results, originalBrand) {
   const original =
     normalizeCompanyName(originalBrand);
 
-  const ignoredDomains = [
+  const ignoredDomains = new Set([
     'google.com',
     'bing.com',
     'youtube.com',
@@ -75,7 +75,38 @@ function extractCandidates(results, originalBrand) {
     'cnbc.com',
     'venturebeat.com',
     'thebusinessdive.com'
-  ];
+  ]);
+
+  const genericNames = new Set([
+    'artificial intelligence',
+    'machine learning',
+    'machine learning framework',
+    'ai companies',
+    'ai company',
+    'ai tools',
+    'ai platforms',
+    'software companies',
+    'technology companies',
+    'technology',
+    'software',
+    'platform',
+    'framework',
+    'tools',
+    'solutions',
+    'developers',
+    'businesses',
+    'creators',
+    'consumers',
+    'product manager',
+    'customer support manager',
+    'data engineering',
+    'data analytics',
+    'business intelligence',
+    'natural language processing',
+    'cloud computing',
+    'middle east',
+    'latin america'
+  ].map(normalizeCompanyName));
 
   const invalidNamePatterns = [
     /^when\b/i,
@@ -85,33 +116,157 @@ function extractCandidates(results, originalBrand) {
     /^which\b/i,
     /^top\b/i,
     /^best\b/i,
-    /^5\b/i,
-    /^10\b/i,
+    /^\d+\b/i,
     /^the top\b/i,
     /^the best\b/i,
     /\bcompanies\b/i,
     /\bcompetitors\b/i,
     /\balternatives\b/i,
     /\bframeworks\b/i,
-    /\bsoftware\b/i,
     /\bplatforms\b/i,
     /\btools\b/i,
     /\bsolutions\b/i,
     /\bservices\b/i,
+    /\bdevelopers\b/i,
+    /\bdesigners\b/i,
+    /\bdeveloper\b/i,
     /\bguide\b/i,
     /\breview\b/i,
     /\bcomparison\b/i,
     /\branking\b/i,
     /\bquick look\b/i,
     /\bsummary\b/i,
+    /\bview profile\b/i,
+    /\bfounded\b/i,
+    /\bjobs\b/i,
+    /\bhire\b/i,
+    /\bwhat is\b/i,
+    /\bhow to\b/i,
+    /\bfor\b/i,
     /###/,
-    /\[/
+    /\[/,
+    /\]/
   ];
 
+  const seen = new Set();
+
+  function isValidName(name) {
+    const cleaned =
+      cleanText(name);
+
+    if (!cleaned) {
+      return false;
+    }
+
+    if (
+      cleaned.length < 2 ||
+      cleaned.length > 50
+    ) {
+      return false;
+    }
+
+    if (
+      invalidNamePatterns.some(pattern =>
+        pattern.test(cleaned)
+      )
+    ) {
+      return false;
+    }
+
+    const wordCount =
+      cleaned.split(/\s+/).length;
+
+    if (wordCount > 5) {
+      return false;
+    }
+
+    if (
+      /[.!?]{2,}/.test(cleaned) ||
+      cleaned.includes('###') ||
+      cleaned.includes('[') ||
+      cleaned.includes(']')
+    ) {
+      return false;
+    }
+
+    const normalized =
+      normalizeCompanyName(cleaned);
+
+    if (genericNames.has(normalized)) {
+      return false;
+    }
+
+    if (
+      normalized === original ||
+      normalized.includes(original) ||
+      original.includes(normalized)
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function addCandidate({
+    name,
+    domain,
+    url,
+    content,
+    score,
+    source
+  }) {
+    if (!isValidName(name)) {
+      return;
+    }
+
+    const normalizedName =
+      normalizeCompanyName(name);
+
+    if (seen.has(normalizedName)) {
+      return;
+    }
+
+    seen.add(normalizedName);
+
+    candidates.push({
+      name: cleanText(name),
+      domain: domain || null,
+      url,
+      description:
+        cleanText(content).slice(0, 800),
+      evidence:
+        cleanText(content),
+      searchScore:
+        score ?? null,
+      source:
+        source || 'tavily'
+    });
+  }
+
+  /*
+   * Main strategy:
+   *
+   * Trust the search result title only when
+   * the title has a strong relationship with
+   * the result's domain.
+   *
+   * Do NOT scan arbitrary article text for
+   * capitalized phrases.
+   */
+
   for (const result of results) {
-    const title = cleanText(result.title);
-    const url = cleanText(result.url);
-    const content = cleanText(result.content);
+    if (candidates.length >= 20) {
+      break;
+    }
+
+    const title =
+      cleanText(result.title);
+
+    const url =
+      cleanText(result.url);
+
+    const content =
+      cleanText(result.content);
 
     if (!title || !url) {
       continue;
@@ -129,184 +284,119 @@ function extractCandidates(results, originalBrand) {
       continue;
     }
 
-    // Reject known publishing/search platforms.
+    const normalizedDomain =
+      domain
+        .toLowerCase()
+        .replace(/^www\./, '');
+
     if (
-      ignoredDomains.some(d =>
-        domain === d ||
-        domain.endsWith(`.${d}`)
-      )
+      ignoredDomains.has(normalizedDomain)
     ) {
       continue;
     }
 
     /*
-     * We deliberately DO NOT extract entities
-     * from arbitrary article body text.
-     *
-     * This prevents garbage such as:
-     * "when its AlphaGo..."
-     * "Mixtral) ### Quick Look..."
+     * Remove common title suffixes.
      */
-    let name = title;
+    let titleName =
+      title
+        .split('|')[0]
+        .split(' — ')[0]
+        .split(' – ')[0]
+        .split(' - ')[0]
+        .trim();
 
-    /*
-     * Strip common website-title suffixes.
-     */
-    name = name
-      .split('|')[0]
-      .split(' — ')[0]
-      .split(' – ')[0]
-      .split(' - ')[0]
-      .trim();
+    titleName =
+      titleName
+        .replace(
+          /\b(official website|official site|homepage)\b/gi,
+          ''
+        )
+        .trim();
 
-    /*
-     * Remove common corporate-description suffixes.
-     */
-    name = name
-      .replace(
-        /\b(official website|official site|homepage)\b/gi,
-        ''
-      )
-      .trim();
-
-    if (!name) {
+    if (!isValidName(titleName)) {
       continue;
     }
 
     /*
-     * Hard quality checks.
-     */
-    if (name.length < 2 || name.length > 60) {
-      continue;
-    }
-
-    if (
-      invalidNamePatterns.some(pattern =>
-        pattern.test(name)
-      )
-    ) {
-      continue;
-    }
-
-    /*
-     * Reject names that look like sentences.
-     */
-    const wordCount =
-      name.split(/\s+/).length;
-
-    if (wordCount > 7) {
-      continue;
-    }
-
-    if (
-      /[.!?]{2,}/.test(name) ||
-      name.includes('###') ||
-      name.includes('[') ||
-      name.includes(']')
-    ) {
-      continue;
-    }
-
-    /*
-     * Reject generic category names.
-     */
-    const genericNames = [
-      'artificial intelligence',
-      'machine learning',
-      'machine learning framework',
-      'ai companies',
-      'ai company',
-      'ai tools',
-      'ai platforms',
-      'software companies',
-      'technology companies',
-      'technology',
-      'software',
-      'platform',
-      'framework',
-      'tools',
-      'solutions'
-    ];
-
-    const normalized =
-      normalizeCompanyName(name);
-
-    if (
-      genericNames.some(g =>
-        normalized ===
-        normalizeCompanyName(g)
-      )
-    ) {
-      continue;
-    }
-
-    /*
-     * Never include the original brand.
-     */
-    if (
-      normalized === original ||
-      normalized.includes(original) ||
-      original.includes(normalized)
-    ) {
-      continue;
-    }
-
-    /*
-     * A direct entity result should have
-     * some meaningful relationship between
-     * the title and its domain.
+     * Compare the title with the domain.
      *
      * Example:
+     *
      * Anthropic → anthropic.com
      * Cerebras → cerebras.ai
+     * Perplexity → perplexity.ai
+     *
+     * These are strong direct-entity signals.
      */
+
     const domainCore =
-      domain
-        .replace(/^www\./, '')
+      normalizedDomain
         .split('.')[0]
         .replace(/[-_]/g, ' ')
-        .toLowerCase();
+        .trim();
 
-    const titleLower =
-      name.toLowerCase();
+    const normalizedTitle =
+      normalizeCompanyName(titleName);
 
-    const domainWords =
-      domainCore
-        .split(/\s+/)
-        .filter(Boolean);
+    const normalizedDomainCore =
+      normalizeCompanyName(domainCore);
 
-    const domainMatchesTitle =
-      domainWords.some(word =>
-        word.length >= 4 &&
-        titleLower.includes(word)
+    const domainMatches =
+      normalizedDomainCore.length >= 4 &&
+      (
+        normalizedTitle.includes(
+          normalizedDomainCore
+        ) ||
+        normalizedDomainCore.includes(
+          normalizedTitle
+        )
       );
 
     /*
-     * If the domain and title have no
-     * identifiable relationship, don't trust
-     * the result as a company entity yet.
+     * Also accept obvious official-company
+     * titles when the title is very short and
+     * the domain looks brand-like.
      */
-    if (!domainMatchesTitle) {
-      continue;
-    }
+    const shortBrand =
+      titleName.split(/\s+/).length <= 3 &&
+      titleName.length <= 35;
 
-    candidates.push({
-      name,
-      domain,
-      url,
-      description:
-        content.slice(0, 800),
-      evidence:
+    if (
+      domainMatches ||
+      (
+        shortBrand &&
+        normalizedDomainCore.length >= 5 &&
+        !normalizedDomainCore.includes('blog') &&
+        !normalizedDomainCore.includes('news')
+      )
+    ) {
+      addCandidate({
+        name: titleName,
+        domain,
+        url,
         content,
-      searchScore:
-        result.score ?? null,
-      source:
-        result.source || 'tavily'
-    });
+        score: result.score,
+        source: result.source
+      });
+    }
   }
 
-  return candidates;
+  /*
+   * Highest search scores first.
+   */
+  candidates.sort(
+    (a, b) =>
+      (b.searchScore || 0) -
+      (a.searchScore || 0)
+  );
+
+  /*
+   * Hard safety limit.
+   */
+  return candidates.slice(0, 20);
 }
+
 async function discoverCompetitors({
   brand,
   brandProfile = {}
@@ -336,7 +426,8 @@ async function discoverCompetitors({
         `[COMPETITOR DISCOVERY] Searching: ${query}`
       );
 
-      const result = await analyzeSearch(query);
+      const result =
+        await analyzeSearch(query);
 
       if (result?.results) {
         allResults.push(...result.results);
@@ -348,48 +439,84 @@ async function discoverCompetitors({
       );
     }
   }
-  
-  const candidates = extractCandidates(
-    allResults,
-    brand
+
+  /*
+   * Phase 1:
+   * Extract plausible entities.
+   */
+  const candidates =
+    extractCandidates(
+      allResults,
+      brand
+    );
+
+  console.log(
+    `[COMPETITOR DISCOVERY] Candidates extracted: ${candidates.length}`
   );
+
+  /*
+   * Phase 2:
+   * Resolve only plausible candidates.
+   */
   const resolvedCandidates = [];
 
-for (const candidate of candidates) {
-  const resolved =
-    await resolveCompetitorEntity(candidate);
+  for (const candidate of candidates) {
+    const resolved =
+      await resolveCompetitorEntity(
+        candidate
+      );
 
-  if (
-    resolved &&
-    resolved.entityVerified &&
-    resolved.officialDomain
-  ) {
-    resolvedCandidates.push(resolved);
+    if (
+      resolved &&
+      resolved.entityVerified &&
+      resolved.officialDomain
+    ) {
+      resolvedCandidates.push(resolved);
+    }
   }
-}
-  const rankedCandidates = rankCompetitors({
-  candidates,
-  brandProfile
-});
 
-const uniqueCompetitors =
-  deduplicateCompetitors(
-    rankedCandidates
+  console.log(
+    `[COMPETITOR DISCOVERY] Verified entities: ${resolvedCandidates.length}`
   );
 
-return {
-  success: true,
-  brand,
-  queryCount: queries.length,
-  resultCount: allResults.length,
-  candidates: resolvedCandidates
-};
+  /*
+   * Phase 3:
+   * Rank ONLY verified entities.
+   */
+  const rankedCandidates =
+    rankCompetitors({
+      candidates: resolvedCandidates,
+      brandProfile
+    });
+
+  /*
+   * Phase 4:
+   * Remove duplicate domains/entities.
+   */
+  const uniqueCompetitors =
+    deduplicateCompetitors(
+      rankedCandidates
+    );
+
+  /*
+   * Phase 5:
+   * Return the actual ranked competitor set.
+   */
+  return {
+    success: true,
+    brand,
+    queryCount: queries.length,
+    resultCount: allResults.length,
+    candidates: uniqueCompetitors
+  };
 }
+
 function calculateCompetitorScore({
   candidate,
   brandProfile = {}
 }) {
-  const text = `${candidate.name} ${candidate.evidence}`.toLowerCase();
+  const text = `${candidate?.name || ''} ${candidate?.evidence || ''}`
+    .toLowerCase();
 
   const identity = brandProfile.identity || {};
   const positioning = brandProfile.positioning || {};
@@ -443,17 +570,17 @@ function calculateCompetitorScore({
   }
 
   // Evidence quality
-  if (candidate.url) {
+  if (candidate?.url) {
     score += 10;
     reasons.push('Verifiable web source');
   }
 
-  if (candidate.evidence.length > 300) {
+  if ((candidate?.evidence || '').length > 300) {
     score += 10;
     reasons.push('Substantial supporting evidence');
   }
 
-  // Search-result quality
+  // Explicit competitive relationship
   if (
     text.includes('competitor') ||
     text.includes('alternative') ||

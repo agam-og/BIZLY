@@ -1,5 +1,11 @@
 const { loadKnowledgeStore } = require("./ingest");
 
+const KNOWLEDGE_CACHE = loadKnowledgeStore();
+
+console.log(
+  `[RAG CACHE] Loaded ${KNOWLEDGE_CACHE.length} knowledge records into memory.`
+);
+
 function normalize(text) {
   return String(text || "")
     .toLowerCase()
@@ -56,8 +62,8 @@ function scoreRecord(query, record) {
   return score;
 }
 
-function retrieve(query, limit = 8) {
-  const knowledge = loadKnowledgeStore();
+function retrieve(query, limit = 3) {
+  const knowledge = KNOWLEDGE_CACHE;
 
   const q = query.toLowerCase();
 
@@ -222,7 +228,7 @@ function retrieve(query, limit = 8) {
     relevanceScore: item.score
   }));
 }
-function buildRetrievalContext(query, limit = 8) {
+function buildRetrievalContext(query, limit = 3) {
   const results = retrieve(query, limit);
 
   return {
