@@ -451,22 +451,17 @@ Before returning the JSON verify:
 Return ONLY JSON.
 `;
 }
-function retrieveDesignSources(query, limit = 8) {
-  const scored = KnowledgeBase
-    .map(source => ({
-      ...source,
-      score: scoreSource(query, source)
-    }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+async function retrieveDesignSources(query, limit = 3) {
+  const { retrieve } = require('./design-intelligence/retrieve');
+
+  const results = await retrieve(query, limit);
 
   console.log(
-    `[RAG RETRIEVAL] Query: "${query}" | Sources: ${scored.length}`
+    `[RAG RETRIEVAL] Query: "${query}" | Sources: ${results.length}`
   );
 
-  return scored;
+  return results;
 }
-
 module.exports = {
   loadDesignSourcesFromExcel,
   scoreSource,

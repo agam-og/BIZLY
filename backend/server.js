@@ -51,7 +51,7 @@ app.post('/api/rag/generate-three-designs', async (req, res) => {
   // 1. Retrieve top matching sources from BIZLY Design Intelligence
   
 
-  const topSources = retrieveDesignSources(query, 8);
+  const topSources = await retrieveDesignSources(query, 3);
 
    // 2. Build rich AI design-generation prompt
   const systemPrompt = buildMultiDesignPrompt(query, topSources);
