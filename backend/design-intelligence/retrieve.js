@@ -412,15 +412,13 @@ async function retrieve(query, limit = 3) {
     }
 
     if (!candidateMap.has(key)) {
-      candidateMap.set(key, {
-        record: item.record,
-
-        semanticScore: 0,
-
-        lexicalScore:
-          Number(item.lexicalScore) || 0
-      });
-    }
+  candidateMap.set(key, {
+    record: item.record,
+    semanticScore: 0,
+    lexicalScore:
+      lexicalScores.get(key) || 0
+  });
+}
   }
 
   const candidates =
